@@ -5,3 +5,8 @@ This project is an independent Home Assistant integration and is not affiliated 
 
 # Home Assistant Integration (**Work in progress**)
 This integration uses an Elfin-EW11A RS485 to WiFi controller to sniff the traffic between the modules inside the Rain Director, and the external attic tank level sensor.
+
+# How to run
+```
+nc 192.168.1.46 8899 | python3 traffic_decoder.py
+```
