@@ -1,0 +1,45 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Set up Rain Director",
+        "description": "Enter the IP address and port of the EW11A RS485-to-WiFi bridge wired to the Rain Director's bus. The integration connects the same way `nc <host> <port>` does, and stays connected.",
+        "data": {
+          "host": "Host",
+          "port": "Port"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Could not open a TCP connection to that host/port.",
+      "no_traffic": "Connected, but no bus traffic arrived within a few seconds. Check this is the EW11A's data port and that the bus is powered."
+    },
+    "abort": {
+      "already_configured": "This bridge is already configured."
+    }
+  },
+  "entity": {
+    "sensor": {
+      "tank_level": { "name": "Attic tank level" },
+      "mode": { "name": "Mode" },
+      "r_value": { "name": "R value (unconfirmed)" },
+      "m_value": { "name": "M value (unconfirmed)" },
+      "commission_drain": { "name": "Commissioning drain" },
+      "commission_mains": { "name": "Commissioning mains" },
+      "commission_rainwater": { "name": "Commissioning rainwater" }
+    },
+    "binary_sensor": {
+      "connectivity": { "name": "Bus connection" },
+      "led_drop": { "name": "Drop LED" },
+      "led_no_rainwater": { "name": "No rainwater LED" },
+      "led_tap": { "name": "Tap LED" },
+      "led_holiday": { "name": "Holiday LED" },
+      "led_recycle": { "name": "Recycle LED" },
+      "led_engineering_mode": { "name": "Engineering mode LED" },
+      "button_drop": { "name": "Drop button" },
+      "button_tap": { "name": "Tap button" },
+      "button_holiday": { "name": "Holiday button" },
+      "button_recycle": { "name": "Recycle button" }
+    }
+  }
+}
