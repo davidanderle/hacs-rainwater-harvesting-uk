@@ -1,4 +1,6 @@
 [![hassfest](https://github.com/home-assistant/actions/workflows/hassfest.yaml/badge.svg)](...)
+[![Tests](https://github.com/davidanderle/hacs-claber-myaquasolar-ble/actions/workflows/tests.yml/badge.svg)](https://github.com/davidanderle/hacs-rainwater-harvesting-uk/actions/workflows/tests.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 # RainWater Harvesting LTD Rain Director — RS485 Protocol & Home Assistant Integration
 
