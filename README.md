@@ -1,3 +1,7 @@
+[![HACS](https://github.com/hacs/action/workflows/Validate/badge.svg)](...)
+[![hassfest](https://github.com/home-assistant/actions/workflows/hassfest.yaml/badge.svg)](...)
+![Validation](https://github.com/davidanderle/hacs-rainwater-harvesting-uk/actions/workflows/validate.yml/badge.svg)
+
 # RainWater Harvesting LTD Rain Director — RS485 Protocol & Home Assistant Integration
 
 Fully reverse-engineered RS485 protocol for the [Rain Director](https://www.rainwaterharvesting.co.uk/product/rain-director/)
