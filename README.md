@@ -56,8 +56,8 @@ If the connection drops (WiFi blip, EW11A reboot), it reconnects with exponentia
 1. HACS -> the three-dot menu -> **Custom repositories**.
 2. Add `https://github.com/davidanderle/hacs-rainwater-harvesting-uk`,
    category **Integration**.
-3. Install **Rain Director**, restart Home Assistant.
-4. Settings -> Devices & Services -> **Add Integration** -> search "Rain Director".
+3. Install **Rainwater Harvesting**, restart Home Assistant.
+4. Settings -> Devices & Services -> **Add Integration** -> search "RainWater Harvesting".
 5. Enter the EW11A's IP address and port (default `8899`). Setup opens a connection and waits a few seconds for at least one line of traffic to confirm it's the right port before creating the entry.
 
 ### Extending it

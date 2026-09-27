@@ -1,4 +1,4 @@
-"""Constants for the Rain Director integration.
+"""Constants for the RainWater Harvesting integration.
 
 Protocol-level constants (checksum seed, flag bit tables, state codes)
 live in :mod:`protocol`. This module holds only the Home Assistant
@@ -15,5 +15,5 @@ PLATFORMS: list[Platform] = [Platform.SENSOR, Platform.BINARY_SENSOR]
 
 DEFAULT_PORT = 8899
 
-MANUFACTURER = "Rain Director"
-MODEL = "RS485 bus (reverse engineered, via EW11A)"
+MANUFACTURER = "RainWater Harvesting"
+MODEL = "Rain Director"

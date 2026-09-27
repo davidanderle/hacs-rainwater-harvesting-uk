@@ -1,4 +1,4 @@
-"""Entity helpers for the Rain Director integration."""
+"""Entity helpers for the RainWater Harvesting integration."""
 
 from __future__ import annotations
 
