@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from homeassistant.const import Platform
 
-DOMAIN = "rain_director"
+DOMAIN = "rainwater_harvesting"
 
 PLATFORMS: list[Platform] = [Platform.SENSOR, Platform.BINARY_SENSOR]
 
