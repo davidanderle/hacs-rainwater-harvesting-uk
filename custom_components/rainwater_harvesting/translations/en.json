@@ -8,6 +8,14 @@
           "host": "Host",
           "port": "Port"
         }
+      },
+      "reconfigure": {
+        "title": "Update Rain Director connection",
+        "description": "Enter the new IP address and port of the EW11A bridge (e.g. after replacing a failed one). Existing entities, history and dashboard references are kept.",
+        "data": {
+          "host": "Host",
+          "port": "Port"
+        }
       }
     },
     "error": {
@@ -15,7 +23,8 @@
       "no_traffic": "Connected, but no bus traffic arrived within a few seconds. Check this is the EW11A's data port and that the bus is powered."
     },
     "abort": {
-      "already_configured": "This bridge is already configured."
+      "already_configured": "This bridge is already configured.",
+      "reconfigure_successful": "Connection details updated."
     }
   },
   "entity": {

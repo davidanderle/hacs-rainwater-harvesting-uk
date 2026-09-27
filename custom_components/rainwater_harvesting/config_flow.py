@@ -50,6 +50,42 @@ class RainDirectorConfigFlow(ConfigFlow, domain=DOMAIN):
         )
         return self.async_show_form(step_id="user", data_schema=data_schema, errors=errors)
 
+    async def async_step_reconfigure(self, user_input: dict | None = None) -> ConfigFlowResult:
+        """Update host/port on an existing entry (e.g. after swapping the EW11A).
+
+        Deliberately doesn't touch the entry's unique_id: pointing the
+        same entry at a new device's IP is exactly what this step is
+        for, so its entities, history and any dashboard/automation
+        references to them are kept rather than starting over.
+        """
+        errors: dict[str, str] = {}
+        reconfigure_entry = self._get_reconfigure_entry()
+
+        if user_input is not None:
+            host = user_input[CONF_HOST].strip()
+            port = user_input[CONF_PORT]
+
+            errors = await self._async_test_connection(host, port)
+            if not errors:
+                return self.async_update_reload_and_abort(
+                    reconfigure_entry,
+                    data_updates={CONF_HOST: host, CONF_PORT: port},
+                )
+
+        data_schema = vol.Schema(
+            {
+                vol.Required(
+                    CONF_HOST, default=reconfigure_entry.data.get(CONF_HOST, "")
+                ): str,
+                vol.Required(
+                    CONF_PORT, default=reconfigure_entry.data.get(CONF_PORT, DEFAULT_PORT)
+                ): int,
+            }
+        )
+        return self.async_show_form(
+            step_id="reconfigure", data_schema=data_schema, errors=errors
+        )
+
     @staticmethod
     async def _async_test_connection(host: str, port: int) -> dict[str, str]:
         """Open a TCP connection and wait briefly for at least one line.
