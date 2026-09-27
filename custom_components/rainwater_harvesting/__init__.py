@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import homeassistant.helpers.config_validation as cv
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_HOST, CONF_PORT
 from homeassistant.core import HomeAssistant
@@ -9,10 +10,10 @@ from homeassistant.core import HomeAssistant
 from .const import DOMAIN, PLATFORMS
 from .coordinator import RainDirectorCoordinator
 
-
-async def async_setup(hass: HomeAssistant, config: dict) -> bool:
-    """Set up the integration from YAML (not supported)."""
-    return True
+# UI/config-entry only -- no YAML configuration is supported. This also
+# gives anyone who tries to configure it via YAML a clear repair/error
+# message instead of the integration silently doing nothing.
+CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:

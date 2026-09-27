@@ -3,7 +3,7 @@
     "step": {
       "user": {
         "title": "Set up Rain Director",
-        "description": "Enter the IP address and port of the EW11A RS485-to-WiFi bridge wired to the Rain Director's bus. The integration connects the same way `nc <host> <port>` does, and stays connected.",
+        "description": "Enter the IP address and port of the EW11A RS485-to-WiFi bridge wired to the Rain Director's bus. The integration connects to it over a persistent TCP connection, the same way `nc` would from a terminal, and stays connected.",
         "data": {
           "host": "Host",
           "port": "Port"
