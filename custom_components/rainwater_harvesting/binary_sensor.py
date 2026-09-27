@@ -18,6 +18,19 @@ from .entity import RainDirectorEntity
 _LED_KEYS = ("drop", "no_rainwater", "tap", "holiday", "recycle", "engineering_mode")
 _BUTTON_KEYS = ("drop", "tap", "holiday", "recycle")
 
+# Default icons, one per LED flag -- shown anywhere HA displays the
+# entity (entity list, more-info dialog, other cards) without needing
+# an explicit `icon:` override, and match the dashboard card's choices.
+_LED_ICONS: dict[str, str] = {
+    "drop": "mdi:water",
+    "tap": "mdi:water-pump",
+    "no_rainwater": "mdi:water-off",
+    "holiday": "mdi:palm-tree",
+    "recycle": "mdi:recycle",
+    "engineering_mode": "mdi:cog",
+}
+_DEFAULT_LED_ICON = "mdi:led-off"  # fallback if a new flag is ever added here first
+
 
 async def async_setup_entry(
     hass: HomeAssistant,
@@ -69,6 +82,7 @@ class LedFlagSensor(RainDirectorEntity, BinarySensorEntity):
         """Initialize entity."""
         super().__init__(coordinator, entry_id, f"led_{flag_key}")
         self._attr_translation_key = f"led_{flag_key}"
+        self._attr_icon = _LED_ICONS.get(flag_key, _DEFAULT_LED_ICON)
         self._flag_key = flag_key
 
     @property
@@ -86,6 +100,7 @@ class ButtonFlagSensor(RainDirectorEntity, BinarySensorEntity):
         """Initialize entity."""
         super().__init__(coordinator, entry_id, f"button_{flag_key}")
         self._attr_translation_key = f"button_{flag_key}"
+        self._attr_icon = "mdi:gesture-tap-button"
         self._flag_key = flag_key
 
     @property
