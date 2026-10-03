@@ -36,7 +36,7 @@ to the EW11A for as long as it's loaded and reads continuously, exactly like the
 
 If the connection drops (WiFi blip, EW11A reboot), it reconnects with exponential backoff (5s -> 10s -> 20s -> ... capped at 60s).
 
-**One consequence worth knowing:** the EW11A generally only serves one open TCP connection at a time in this mode. Once the integration is running, it holds that slot -- you won't be able to run `nc` alongside it to keep debugging on the wire without stopping the integration first. If you ever need both running at once, or multiple independent consumers of the same stream, the fix is a small always-on bridge process that holds the one EW11A connection and republishes over MQTT with retained topics; the integration deliberately doesn't do that itself, since it's an extra moving part (a broker) a single-HA-install setup doesn't need.
+**Note:** the EW11A accepts at least two simultaneous TCP connections in this mode, so you can run `nc` (or `traffic_decoder.py`) alongside the integration to watch the bus while it runs.
 
 ### Entities
 
@@ -44,6 +44,9 @@ If the connection drops (WiFi blip, EW11A reboot), it reconnects with exponentia
 |---|---|---|
 | Attic tank level | sensor | 0-100%, from the `2053` reply |
 | Mode | sensor | Decoded from `{"tanklevels":{"state": ...}}` |
+| Display | sensor | Screen shown on the control unit (`mains_only`, `normal`, `holiday`, `refresh`), from the `(display)` log lines |
+| Last action | sensor | Last announced action (`fill_from_mains`, `fill_from_rainwater`, `holiday_drain_tank`, `refresh_tank`) |
+| Unknown messages | sensor | Diagnostic; counts frames, JSON or text lines no decoder recognises. `last_message` attribute holds the latest |
 | R value (unconfirmed) | sensor | Diagnostic; meaning not yet confirmed |
 | M value (unconfirmed) | sensor | Diagnostic; meaning not yet confirmed |
 | Commissioning drain/mains/rainwater | sensor | Diagnostic, disabled by default; only ever seen once, at commissioning |

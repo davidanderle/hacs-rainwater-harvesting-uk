@@ -26,8 +26,10 @@ Frame types:
     4033   Button controller status -- reply to the "40123b" poll.
 
 Besides '<...>' frames, the controller's own debug log shares the same
-serial line. Most of it is chatter with no state in it. The one JSON
-line worth keeping updates the tank-level/mode state, e.g.:
+serial line. Some of it is chatter with no state in it (TEXT_CHATTER),
+some is plain-text display/action messages (DISPLAY_MESSAGES,
+ACTION_MESSAGES) and anything else is flagged as unknown. The JSON
+line updates the tank-level/mode state, e.g.:
 
     {"tanklevels":{"top":"0","bottom":"0","state":"1","r":"58","m":"21"}}
 
@@ -111,6 +113,28 @@ STATE_NAMES: dict[int, str] = {
     13: "engineering_mode",
 }
 
+# Plain-text debug lines, matched verbatim, with the key they decode to.
+# "(display)" lines repeat continuously while that screen is showing.
+DISPLAY_MESSAGES: dict[str, str] = {
+    "Mains only (display)": "mains_only",
+    "Normal (display)": "normal",
+    "Holiday (display)": "holiday",
+    "Refresh (display)": "refresh",
+}
+
+# One-shot lines announcing the action the controller just started.
+ACTION_MESSAGES: dict[str, str] = {
+    "Fill from mains": "fill_from_mains",
+    "Fill from rainwater": "fill_from_rainwater",
+    "Holiday mode drain tank": "holiday_drain_tank",
+    "Refresh tank": "refresh_tank",
+}
+
+# Known plain-text lines with no state in them; ignored.
+TEXT_CHATTER: frozenset[str] = frozenset(
+    {"Write tank levels data to RAM", "Sent to RAM"}
+)
+
 # Poll frames sent by the bus master -> the frame "type" (first 2 chars)
 # of the reply each one expects.
 POLL_FRAMES: dict[str, str] = {
@@ -118,6 +142,11 @@ POLL_FRAMES: dict[str, str] = {
     "30123c": "30",
     "40123b": "40",
 }
+
+# type+address prefixes this module knows how to decode. Anything else
+# that shows up with a valid checksum is new territory -- see
+# BusFrameDecoder._process_frame's unknown-prefix handling below.
+KNOWN_PREFIXES: frozenset[str] = frozenset({"1053", "2053", "4033"})
 
 
 # ==========================================================================
@@ -151,6 +180,16 @@ class RainDirectorData:
     commission_mains: Optional[str] = None
     commission_rainwater: Optional[str] = None
 
+    display_mode: Optional[str] = None
+    last_action: Optional[str] = None
+
+    # Running count + most recent example of a frame or debug JSON line
+    # that didn't match any known decoder -- the reverse-engineering is
+    # incomplete, so this is the signal that something new showed up on
+    # the bus worth looking into (see BusFrameDecoder below).
+    unknown_message_count: int = 0
+    last_unknown_message: Optional[str] = None
+
 
 # ==========================================================================
 # Stateful decoder: pairs polls with replies, suppresses unchanged frames
@@ -178,7 +217,31 @@ class BusFrameDecoder:
             return self._process_frame(line[1:], data)
         if line.startswith("{"):
             return self._process_json(line, data)
-        return None, []  # firmware debug chatter, e.g. "Sent to RAM" -- ignored
+        return self._process_text(line, data)
+
+    # -- plain-text debug lines ---------------------------------------------
+
+    def _process_text(
+        self, line: str, data: RainDirectorData
+    ) -> tuple[Optional[RainDirectorData], list[str]]:
+        if line in TEXT_CHATTER:
+            return None, []
+
+        if line in DISPLAY_MESSAGES:
+            key, updates = "text:display", {"display_mode": DISPLAY_MESSAGES[line]}
+        elif line in ACTION_MESSAGES:
+            key, updates = "text:action", {"last_action": ACTION_MESSAGES[line]}
+        else:
+            key = "text:unknown"
+            if self._last_seen.get(key) == line:
+                return None, []
+            self._last_seen[key] = line
+            return self._mark_unknown(data, f"Unknown text message: {line}", line)
+
+        if self._last_seen.get(key) == line:
+            return None, []
+        self._last_seen[key] = line
+        return replace(data, last_update=datetime.now(), **updates), []
 
     # -- '<...>' frames ---------------------------------------------------
 
@@ -212,9 +275,33 @@ class BusFrameDecoder:
 
         updates = self._decode_payload(prefix, packet[4:-2])
         if not updates:
+            if prefix not in KNOWN_PREFIXES:
+                return self._mark_unknown(
+                    data, f"Unknown frame type, prefix {prefix}: <{packet}", f"<{packet}"
+                )
             return None, []
 
         return replace(data, last_update=datetime.now(), **updates), []
+
+    @staticmethod
+    def _mark_unknown(
+        data: RainDirectorData, notice: str, raw_text: str
+    ) -> tuple[RainDirectorData, list[str]]:
+        """Record an unrecognized-but-well-formed frame or JSON line.
+
+        Still returns a real snapshot update (not just a log notice) so
+        it shows up as an entity too -- a log line is easy to miss, a
+        sensor that increments is not.
+        """
+        return (
+            replace(
+                data,
+                last_update=datetime.now(),
+                unknown_message_count=data.unknown_message_count + 1,
+                last_unknown_message=raw_text,
+            ),
+            [notice],
+        )
 
     @staticmethod
     def _decode_payload(prefix: str, payload: str) -> dict:
@@ -279,7 +366,10 @@ class BusFrameDecoder:
             updates.update(self._decode_commisiondata(commisiondata))
 
         if not updates:
-            return None, []
+            shape = ", ".join(sorted(obj.keys())) or "no keys"
+            return self._mark_unknown(
+                data, f"Unknown JSON message shape ({shape}): {line}", line
+            )
 
         return replace(data, last_update=datetime.now(), **updates), []
 

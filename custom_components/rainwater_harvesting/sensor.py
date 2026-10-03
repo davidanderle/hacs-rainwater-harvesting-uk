@@ -26,8 +26,11 @@ async def async_setup_entry(
     entities: list[RainDirectorEntity] = [
         TankLevelSensor(coordinator, entry.entry_id),
         ModeSensor(coordinator, entry.entry_id),
+        DisplayModeSensor(coordinator, entry.entry_id),
+        LastActionSensor(coordinator, entry.entry_id),
         RValueSensor(coordinator, entry.entry_id),
         MValueSensor(coordinator, entry.entry_id),
+        UnknownMessageSensor(coordinator, entry.entry_id),
     ]
     entities += [
         CommissionSensor(coordinator, entry.entry_id, field) for field in _COMMISSION_FIELDS
@@ -82,6 +85,38 @@ class ModeSensor(RainDirectorEntity, SensorEntity):
         return {"mode_code": self.coordinator.data.mode_code}
 
 
+class DisplayModeSensor(RainDirectorEntity, SensorEntity):
+    """Screen currently shown on the control unit, from its '(display)' log lines."""
+
+    _attr_translation_key = "display_mode"
+    _attr_icon = "mdi:monitor"
+
+    def __init__(self, coordinator: RainDirectorCoordinator, entry_id: str) -> None:
+        """Initialize entity."""
+        super().__init__(coordinator, entry_id, "display_mode")
+
+    @property
+    def native_value(self) -> str | None:
+        """Return the last display screen announced."""
+        return self.coordinator.data.display_mode
+
+
+class LastActionSensor(RainDirectorEntity, SensorEntity):
+    """Last action the controller announced (fill, drain, refresh)."""
+
+    _attr_translation_key = "last_action"
+    _attr_icon = "mdi:gesture-tap-button"
+
+    def __init__(self, coordinator: RainDirectorCoordinator, entry_id: str) -> None:
+        """Initialize entity."""
+        super().__init__(coordinator, entry_id, "last_action")
+
+    @property
+    def native_value(self) -> str | None:
+        """Return the last announced action."""
+        return self.coordinator.data.last_action
+
+
 class RValueSensor(RainDirectorEntity, SensorEntity):
     """'r' field from the tanklevels JSON -- meaning unconfirmed."""
 
@@ -114,6 +149,38 @@ class MValueSensor(RainDirectorEntity, SensorEntity):
     def native_value(self) -> str | None:
         """Return the raw 'm' value."""
         return self.coordinator.data.m_value
+
+
+class UnknownMessageSensor(RainDirectorEntity, SensorEntity):
+    """Count of bus frames/JSON lines that matched no known decoder.
+
+    The reverse-engineering behind this integration is incomplete by
+    nature, so this is the signal that something new showed up on the
+    bus. Every increment is also logged as a warning (see
+    coordinator.py), with the full frame/line text in the log; this
+    entity is the glanceable, automatable version of the same thing --
+    `last_message` holds the most recent example without needing to go
+    dig through logs.
+    """
+
+    _attr_translation_key = "unknown_messages"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_state_class = SensorStateClass.TOTAL_INCREASING
+    _attr_icon = "mdi:help-rhombus-outline"
+
+    def __init__(self, coordinator: RainDirectorCoordinator, entry_id: str) -> None:
+        """Initialize entity."""
+        super().__init__(coordinator, entry_id, "unknown_messages")
+
+    @property
+    def native_value(self) -> int:
+        """Return the running count of unrecognized frames/JSON lines."""
+        return self.coordinator.data.unknown_message_count
+
+    @property
+    def extra_state_attributes(self) -> dict[str, str | None]:
+        """Expose the most recent unrecognized frame/line verbatim."""
+        return {"last_message": self.coordinator.data.last_unknown_message}
 
 
 class CommissionSensor(RainDirectorEntity, SensorEntity):

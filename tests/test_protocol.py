@@ -175,6 +175,89 @@ def test_plain_debug_chatter_is_ignored():
     assert notices == []
 
 
+def test_unknown_frame_prefix_is_flagged_and_counted():
+    decoder = BusFrameDecoder()
+    data = RainDirectorData()
+    unknown_frame = _frame("5099" + "ab")  # a type/address never seen before
+    data, notices = _feed(decoder, data, "<" + unknown_frame)
+    assert data.unknown_message_count == 1
+    assert data.last_unknown_message == "<" + unknown_frame
+    assert len(notices) == 1
+    assert "Unknown frame type" in notices[0]
+
+
+def test_unknown_json_shape_is_flagged_and_counted():
+    decoder = BusFrameDecoder()
+    data = RainDirectorData()
+    line = '{"somethingnew":{"x":"1"}}'
+    data, notices = _feed(decoder, data, line)
+    assert data.unknown_message_count == 1
+    assert data.last_unknown_message == line
+    assert "Unknown JSON message shape" in notices[0]
+
+
+def test_known_frames_do_not_increment_unknown_count():
+    decoder = BusFrameDecoder()
+    data = RainDirectorData()
+    led_frame = _frame("1053" + "0104")
+    data, _ = _feed(decoder, data, "<" + led_frame)
+    assert data.unknown_message_count == 0
+
+
+def test_repeated_unknown_frame_only_flagged_once_while_unchanged():
+    decoder = BusFrameDecoder()
+    data = RainDirectorData()
+    unknown_frame = _frame("5099" + "ab")
+    data, _ = _feed(decoder, data, "<" + unknown_frame)
+    assert data.unknown_message_count == 1
+    # same exact packet again -- existing per-prefix dedup should suppress it
+    new_data, notices = decoder.process_line("<" + unknown_frame, data)
+    assert new_data is None
+    assert notices == []
+
+
+def test_known_text_chatter_is_ignored():
+    decoder = BusFrameDecoder()
+    data = RainDirectorData()
+    for line in ("Write tank levels data to RAM", "Sent to RAM"):
+        new_data, notices = decoder.process_line(line, data)
+        assert new_data is None
+        assert notices == []
+
+
+def test_display_message_sets_display_mode_once():
+    decoder = BusFrameDecoder()
+    data = RainDirectorData()
+    data, notices = _feed(decoder, data, "Holiday (display)")
+    assert data.display_mode == "holiday"
+    assert data.unknown_message_count == 0
+    assert notices == []
+    new_data, _ = decoder.process_line("Holiday (display)", data)
+    assert new_data is None
+
+
+def test_action_message_sets_last_action():
+    decoder = BusFrameDecoder()
+    data = RainDirectorData()
+    data, _ = _feed(decoder, data, "Fill from rainwater")
+    assert data.last_action == "fill_from_rainwater"
+    data, _ = _feed(decoder, data, "Refresh tank")
+    assert data.last_action == "refresh_tank"
+    assert data.unknown_message_count == 0
+
+
+def test_unknown_text_is_flagged_once_while_unchanged():
+    decoder = BusFrameDecoder()
+    data = RainDirectorData()
+    data, notices = _feed(decoder, data, "Something new happened")
+    assert data.unknown_message_count == 1
+    assert data.last_unknown_message == "Something new happened"
+    assert "Unknown text message" in notices[0]
+    new_data, notices = decoder.process_line("Something new happened", data)
+    assert new_data is None
+    assert notices == []
+
+
 def test_unparseable_json_is_ignored():
     decoder = BusFrameDecoder()
     data = RainDirectorData()

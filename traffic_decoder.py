@@ -34,9 +34,12 @@ Frame types seen on the bus:
     4033   Button controller status. Sent in reply to the "40123b" poll.
 
 Besides the '<...>' frames, the controller's own debug/log output shares
-this same serial line. Most of it ("Write tank levels data to RAM",
-"Sent to RAM", ...) is plain chatter with no state in it and is ignored.
-The one line worth keeping is a JSON blob it prints while updating its
+this same serial line. Some of it ("Write tank levels data to RAM",
+"Sent to RAM") is plain chatter with no state in it and is ignored. The
+rest is plain-text display/action messages (DISPLAY_MESSAGES,
+ACTION_MESSAGES below) which are printed when they change, and anything
+unrecognised, which is printed as UNKNOWN TEXT. There is also a JSON
+blob it prints while updating its
 internal tank-level state, e.g.:
 
     {"tanklevels":{"top":"0","bottom":"0","state":"1","r":"58","m":"21"}}
@@ -240,6 +243,29 @@ JSON_DECODERS: list[Callable[[dict], Optional[str]]] = [
 
 
 # ==========================================================================
+# Plain-text debug lines
+# ==========================================================================
+
+# "(display)" lines repeat continuously while that screen is showing.
+DISPLAY_MESSAGES: dict[str, str] = {
+    "Mains only (display)": "mains_only",
+    "Normal (display)": "normal",
+    "Holiday (display)": "holiday",
+    "Refresh (display)": "refresh",
+}
+
+# One-shot lines announcing the action the controller just started.
+ACTION_MESSAGES: dict[str, str] = {
+    "Fill from mains": "fill_from_mains",
+    "Fill from rainwater": "fill_from_rainwater",
+    "Holiday mode drain tank": "holiday_drain_tank",
+    "Refresh tank": "refresh_tank",
+}
+
+TEXT_CHATTER = frozenset({"Write tank levels data to RAM", "Sent to RAM"})
+
+
+# ==========================================================================
 # Stateful filter: pairs polls with replies, suppresses unchanged frames
 # ==========================================================================
 
@@ -292,6 +318,20 @@ class BusFilter:
 
         text = line if description is None else f"{line}\t# {description}"
         self._print(text)
+
+    def handle_text(self, line: str) -> None:
+        if line in TEXT_CHATTER:
+            return
+
+        if line in DISPLAY_MESSAGES:
+            key, description = "text:display", f"display={DISPLAY_MESSAGES[line]}"
+        elif line in ACTION_MESSAGES:
+            key, description = "text:action", f"action={ACTION_MESSAGES[line]}"
+        else:
+            key, description = "text:unknown", "UNKNOWN TEXT"
+
+        if self._changed(key, line):
+            self._print(f"{line}\t# {description}")
 
     def handle(self, packet: str) -> None:
         # Outbound poll: hold it and wait for the matching reply.
@@ -378,8 +418,9 @@ def main() -> None:
             bus_filter.handle_json(line)
             continue
 
-        # Anything else is firmware debug chatter with no state in it
-        # ("Write tank levels data to RAM", "Sent to RAM", ...) -- ignored.
+        # Plain-text firmware debug line (display/action messages,
+        # chatter, or something not seen before).
+        bus_filter.handle_text(line)
 
 
 if __name__ == "__main__":

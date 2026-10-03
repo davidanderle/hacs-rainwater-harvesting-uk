@@ -31,7 +31,10 @@
     "sensor": {
       "tank_level": { "name": "Attic tank level" },
       "mode": { "name": "Mode" },
+      "display_mode": { "name": "Display" },
+      "last_action": { "name": "Last action" },
       "r_value": { "name": "R value (unconfirmed)" },
+      "unknown_messages": { "name": "Unknown messages" },
       "m_value": { "name": "M value (unconfirmed)" },
       "commission_drain": { "name": "Commissioning drain" },
       "commission_mains": { "name": "Commissioning mains" },
