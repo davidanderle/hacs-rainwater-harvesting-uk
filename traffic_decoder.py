@@ -400,8 +400,12 @@ def iter_lines(stream, chunk_size: int = 4096):
 
 def main() -> None:
     bus_filter = BusFilter()
+    lines = iter_lines(sys.stdin)
 
-    for line in iter_lines(sys.stdin):
+    # We may have joined mid-line; drop up to the first line break.
+    next(lines, None)
+
+    for line in lines:
         line = line.strip()
         if not line:
             continue

@@ -258,6 +258,23 @@ def test_unknown_text_is_flagged_once_while_unchanged():
     assert notices == []
 
 
+def test_reset_connection_clears_pending_poll_but_keeps_change_filter():
+    decoder = BusFrameDecoder()
+    data = RainDirectorData()
+    reply = _frame("2053" + "3a00")
+    data, _ = _feed(decoder, data, "<20123d")
+    data, _ = _feed(decoder, data, "<" + reply)
+    data, _ = _feed(decoder, data, "<30123c")  # poll left unanswered
+    decoder.reset_connection()
+    # A pending poll would make this 20-series frame an unexpected response.
+    new_data, notices = decoder.process_line("<" + _frame("2053" + "3b00"), data)
+    assert notices == []
+    assert new_data.tank_level == 0x3b
+    # Unchanged frame is still suppressed after the reset.
+    new_data, notices = decoder.process_line("<" + _frame("2053" + "3b00"), new_data)
+    assert new_data is None
+
+
 def test_unparseable_json_is_ignored():
     decoder = BusFrameDecoder()
     data = RainDirectorData()

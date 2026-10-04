@@ -100,12 +100,23 @@ class RainDirectorCoordinator(DataUpdateCoordinator[RainDirectorData]):
             self._set_connected(True)
             _LOGGER.info("Connected to EW11A at %s:%s", self.host, self.port)
 
+            self._decoder.reset_connection()
+
             buffer = ""
+            synced = False
             while True:
                 chunk = await reader.read(_READ_CHUNK)
                 if not chunk:
                     raise OSError("EW11A closed the connection")
                 buffer += chunk.decode("ascii", errors="ignore")
+
+                if not synced:
+                    # We may have joined mid-line; drop up to the first line break.
+                    first_break = _LINE_SPLIT_RE.search(buffer)
+                    if first_break is None:
+                        continue
+                    buffer = buffer[first_break.end():]
+                    synced = True
 
                 *lines, buffer = _LINE_SPLIT_RE.split(buffer)
                 for line in lines:

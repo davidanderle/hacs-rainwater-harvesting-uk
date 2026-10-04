@@ -210,6 +210,10 @@ class BusFrameDecoder:
         self._last_seen: dict[str, str] = {}
         self._pending_poll: Optional[str] = None
 
+    def reset_connection(self) -> None:
+        """Forget per-connection state; change-filtering history is kept."""
+        self._pending_poll = None
+
     def process_line(
         self, line: str, data: RainDirectorData
     ) -> tuple[Optional[RainDirectorData], list[str]]:
