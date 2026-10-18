@@ -65,7 +65,9 @@ Change filtering:
 
 from __future__ import annotations
 
+import codecs
 import json
+import os
 import re
 import sys
 from dataclasses import dataclass, field
@@ -126,6 +128,11 @@ LED_FLAGS = {
     0b00000100: "Engineering mode LED",
 }
 
+# Every bit LED_FLAGS names; commissioning frames carry others (0x4001, 0x4002, 0xC000).
+KNOWN_LED_MASK = 0
+for _bit in LED_FLAGS:
+    KNOWN_LED_MASK |= _bit
+
 
 # ==========================================================================
 # Per-frame-type decoders
@@ -141,7 +148,11 @@ def decode_led_status(data: str) -> Optional[str]:
         return None
     combined = (int(data[0:2], 16) << 16) | int(data[2:4], 16)
     on = decode_flags(combined, LED_FLAGS)
-    return f"LEDs on: {', '.join(on)}" if on else "LEDs: all off"
+    unmapped = combined & ~KNOWN_LED_MASK
+    text = f"LEDs on: {', '.join(on)}" if on else "LEDs: all off"
+    if unmapped:
+        text += f" (+ UNMAPPED LED bits 0x{unmapped:06X})"
+    return text
 
 
 def decode_tank_level(data: str) -> Optional[str]:
@@ -196,6 +207,8 @@ STATE_NAMES: dict[int, str] = {
     4: "holiday fill",
     5: "recycling drain",
     9: "commissioning",
+    # Start of a full commissioning run (tank drained 86% -> 49%, r=0, m=0), then state 9.
+    15: "commissioning drain",
     13: "engineering mode",
 }
 
@@ -252,6 +265,8 @@ DISPLAY_MESSAGES: dict[str, str] = {
     "Normal (display)": "normal",
     "Holiday (display)": "holiday",
     "Refresh (display)": "refresh",
+    "Engineering mode (display)": "engineering_mode",
+    "Exit engineering mode (display)": "exit_engineering_mode",
 }
 
 # One-shot lines announcing the action the controller just started.
@@ -260,9 +275,22 @@ ACTION_MESSAGES: dict[str, str] = {
     "Fill from rainwater": "fill_from_rainwater",
     "Holiday mode drain tank": "holiday_drain_tank",
     "Refresh tank": "refresh_tank",
+    "Engineering mode solenoid test": "engineering_solenoid_test",
+    # Announced in order during a full auto-commissioning run.
+    "Level sensor auto commission": "commission_level_sensor",
+    "Auto commission - rainwater fill": "commission_rainwater_fill",
+    "Auto commission - mains fill": "commission_mains_fill",
+    "Auto commission complete": "commission_complete",
 }
 
-TEXT_CHATTER = frozenset({"Write tank levels data to RAM", "Sent to RAM"})
+TEXT_CHATTER = frozenset(
+    {
+        "Write tank levels data to RAM",
+        "Sent to RAM",
+        # Brackets the one-off {"commisiondata": ...} JSON.
+        "Write commission data to RAM",
+    }
+)
 
 
 # ==========================================================================
@@ -384,10 +412,19 @@ class BusFilter:
 _LINE_SPLIT_RE = re.compile(r"[\r\n]")
 
 
-def iter_lines(stream, chunk_size: int = 4096):
+def iter_lines(fd: int, chunk_size: int = 4096):
+    """Yield lines from a file descriptor as soon as they arrive.
+
+    os.read() returns whatever is available; sys.stdin.read(4096) blocks
+    for a full 4096 chars (~7 s on this bus), which batched timestamps.
+    """
+    decoder = codecs.getincrementaldecoder("ascii")(errors="ignore")
     buffer = ""
-    for chunk in iter(lambda: stream.read(chunk_size), ""):
-        buffer += chunk
+    while True:
+        data = os.read(fd, chunk_size)
+        if not data:
+            break
+        buffer += decoder.decode(data)
         *lines, buffer = _LINE_SPLIT_RE.split(buffer)
         yield from lines
     if buffer:
@@ -400,7 +437,7 @@ def iter_lines(stream, chunk_size: int = 4096):
 
 def main() -> None:
     bus_filter = BusFilter()
-    lines = iter_lines(sys.stdin)
+    lines = iter_lines(sys.stdin.fileno())
 
     # We may have joined mid-line; drop up to the first line break.
     next(lines, None)
