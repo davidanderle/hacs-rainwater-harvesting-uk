@@ -16,6 +16,7 @@ from protocol import (  # noqa: E402
     BUTTON_FLAGS,
     LED_FLAGS,
     STATE_NAMES,
+    unmapped_led_bits,
 )
 
 
@@ -273,6 +274,97 @@ def test_reset_connection_clears_pending_poll_but_keeps_change_filter():
     # Unchanged frame is still suppressed after the reset.
     new_data, notices = decoder.process_line("<" + _frame("2053" + "3b00"), new_data)
     assert new_data is None
+
+
+def test_commissioning_and_engineering_messages_are_all_known():
+    """Every text line from a real commissioning + engineering-mode capture."""
+    decoder = BusFrameDecoder()
+    data = RainDirectorData()
+    lines = [
+        "Level sensor auto commission",
+        "Auto commission - rainwater fill",
+        "Auto commission - mains fill",
+        "Auto commission complete",
+        "Write commission data to RAM",
+        "Engineering mode (display)",
+        "Engineering mode solenoid test",
+        "Exit engineering mode (display)",
+    ]
+    for line in lines:
+        data, notices = _feed(decoder, data, line)
+        assert notices == [], line
+    assert data.unknown_message_count == 0
+    assert data.last_action == "engineering_solenoid_test"
+    assert data.display_mode == "exit_engineering_mode"
+
+
+def test_commissioning_steps_are_reported_in_order():
+    decoder = BusFrameDecoder()
+    data = RainDirectorData()
+    seen = []
+    for line in (
+        "Level sensor auto commission",
+        "Auto commission - rainwater fill",
+        "Auto commission - mains fill",
+        "Auto commission complete",
+    ):
+        data, _ = _feed(decoder, data, line)
+        seen.append(data.last_action)
+    assert seen == [
+        "commission_level_sensor",
+        "commission_rainwater_fill",
+        "commission_mains_fill",
+        "commission_complete",
+    ]
+
+
+def test_commission_write_line_is_chatter_not_unknown():
+    decoder = BusFrameDecoder()
+    data = RainDirectorData()
+    new_data, notices = decoder.process_line("Write commission data to RAM", data)
+    assert new_data is None
+    assert notices == []
+
+
+def test_state_15_is_commissioning_drain():
+    decoder = BusFrameDecoder()
+    data = RainDirectorData()
+    line = '{"tanklevels":{"top":"85","bottom":"0","state":"15","r":"0","m":"0"}}'
+    data, _ = _feed(decoder, data, line)
+    assert data.mode_code == 15
+    assert data.mode_name == STATE_NAMES[15] == "commissioning_drain"
+
+
+def test_unmapped_led_bits_are_reported_not_read_as_off():
+    """Real frames from a commissioning run: bits the decoder has no name for."""
+    for raw in ("1053c00068", "105340013e", "105340023d"):
+        decoder = BusFrameDecoder()
+        data = RainDirectorData()
+        assert checksum_ok(raw), raw
+        data, notices = _feed(decoder, data, "<" + raw)
+        assert data.led_flags == frozenset(), raw
+        assert data.unknown_message_count == 1, raw
+        assert data.last_unknown_message == "<" + raw
+        assert len(notices) == 1 and "unmapped bits" in notices[0], raw
+
+
+def test_mapped_led_frames_do_not_trigger_unmapped_warning():
+    # real frames: Drop LED; Drop + Engineering; Engineering only
+    for raw in ("105301003a", "105301043e", "105300043f"):
+        decoder = BusFrameDecoder()
+        data = RainDirectorData()
+        data, notices = _feed(decoder, data, "<" + raw)
+        assert notices == [], raw
+        assert data.unknown_message_count == 0, raw
+        assert data.led_flags, raw
+
+
+def test_unmapped_led_bits_value_is_exact():
+    assert unmapped_led_bits("4001") == 0x400001
+    assert unmapped_led_bits("4002") == 0x400002
+    assert unmapped_led_bits("c000") == 0xC00000
+    assert unmapped_led_bits("0104") == 0  # drop + engineering: fully mapped
+    assert unmapped_led_bits("01") == 0  # too short to decode
 
 
 def test_unparseable_json_is_ignored():

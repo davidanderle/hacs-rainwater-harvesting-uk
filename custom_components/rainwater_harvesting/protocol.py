@@ -99,6 +99,19 @@ LED_FLAGS: dict[int, str] = {
     0b00000100: "engineering_mode",
 }
 
+# Every bit LED_FLAGS names; commissioning frames carry others (0x4001, 0x4002, 0xC000).
+KNOWN_LED_MASK: int = 0
+for _bit in LED_FLAGS:
+    KNOWN_LED_MASK |= _bit
+
+
+def unmapped_led_bits(payload: str) -> int:
+    """Bits set in a 1053 payload that LED_FLAGS has no name for (0 if none)."""
+    if len(payload) < 4:
+        return 0
+    combined = (int(payload[0:2], 16) << 16) | int(payload[2:4], 16)
+    return combined & ~KNOWN_LED_MASK
+
 # Rain Director operating-state codes, decoded from "state" in the
 # {"tanklevels": {...}} debug JSON. Add a new code here as one line
 # once it's confirmed; an unmapped code still surfaces as mode_code
@@ -110,6 +123,8 @@ STATE_NAMES: dict[int, str] = {
     4: "holiday_fill",
     5: "recycling_drain",
     9: "commissioning",
+    # Start of a full commissioning run (tank drained 86% -> 49%, r=0, m=0), then state 9.
+    15: "commissioning_drain",
     13: "engineering_mode",
 }
 
@@ -120,6 +135,8 @@ DISPLAY_MESSAGES: dict[str, str] = {
     "Normal (display)": "normal",
     "Holiday (display)": "holiday",
     "Refresh (display)": "refresh",
+    "Engineering mode (display)": "engineering_mode",
+    "Exit engineering mode (display)": "exit_engineering_mode",
 }
 
 # One-shot lines announcing the action the controller just started.
@@ -128,11 +145,22 @@ ACTION_MESSAGES: dict[str, str] = {
     "Fill from rainwater": "fill_from_rainwater",
     "Holiday mode drain tank": "holiday_drain_tank",
     "Refresh tank": "refresh_tank",
+    "Engineering mode solenoid test": "engineering_solenoid_test",
+    # Announced in order during a full auto-commissioning run.
+    "Level sensor auto commission": "commission_level_sensor",
+    "Auto commission - rainwater fill": "commission_rainwater_fill",
+    "Auto commission - mains fill": "commission_mains_fill",
+    "Auto commission complete": "commission_complete",
 }
 
 # Known plain-text lines with no state in them; ignored.
 TEXT_CHATTER: frozenset[str] = frozenset(
-    {"Write tank levels data to RAM", "Sent to RAM"}
+    {
+        "Write tank levels data to RAM",
+        "Sent to RAM",
+        # Brackets the one-off {"commisiondata": ...} JSON.
+        "Write commission data to RAM",
+    }
 )
 
 # Poll frames sent by the bus master -> the frame "type" (first 2 chars)
@@ -285,7 +313,18 @@ class BusFrameDecoder:
                 )
             return None, []
 
-        return replace(data, last_update=datetime.now(), **updates), []
+        new_data = replace(data, last_update=datetime.now(), **updates)
+
+        if prefix == "1053":
+            unmapped = unmapped_led_bits(packet[4:-2])
+            if unmapped:
+                return self._mark_unknown(
+                    new_data,
+                    f"LED frame has unmapped bits 0x{unmapped:06X}: <{packet}",
+                    f"<{packet}",
+                )
+
+        return new_data, []
 
     @staticmethod
     def _mark_unknown(
