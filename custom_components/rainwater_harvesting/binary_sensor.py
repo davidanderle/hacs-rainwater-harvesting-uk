@@ -15,7 +15,16 @@ from .const import DOMAIN
 from .coordinator import RainDirectorCoordinator
 from .entity import RainDirectorEntity
 
-_LED_KEYS = ("drop", "no_rainwater", "tap", "holiday", "recycle", "engineering_mode")
+_LED_KEYS = (
+    "drop",
+    "no_rainwater",
+    "tap",
+    "holiday",
+    "recycle",
+    "engineering_mode",
+    "rain_filling",
+    "mains_filling",
+)
 _BUTTON_KEYS = ("drop", "tap", "holiday", "recycle")
 
 # Default icons, one per LED flag -- shown anywhere HA displays the
@@ -28,6 +37,8 @@ _LED_ICONS: dict[str, str] = {
     "holiday": "mdi:palm-tree",
     "recycle": "mdi:recycle",
     "engineering_mode": "mdi:cog",
+    "rain_filling": "mdi:weather-pouring",
+    "mains_filling": "mdi:faucet",
 }
 _DEFAULT_LED_ICON = "mdi:led-off"  # fallback if a new flag is ever added here first
 

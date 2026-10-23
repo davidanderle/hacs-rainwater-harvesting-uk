@@ -126,6 +126,10 @@ LED_FLAGS = {
     0b01000 << 16: "Holiday LED",
     0b10000 << 16: "Recycle LED",
     0b00000100: "Engineering mode LED",
+    # The rain / mains "filling" panel lights (see protocol.py): lit while
+    # the tank is being filled from that source. Confirmed on the unit.
+    0b00000001: "Rain filling LED",
+    0b00000010: "Mains filling LED",
 }
 
 # Every bit LED_FLAGS names; commissioning frames carry others (0x4001, 0x4002, 0xC000).

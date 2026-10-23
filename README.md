@@ -52,6 +52,10 @@ If the connection drops (WiFi blip, EW11A reboot), it reconnects with exponentia
 | Commissioning drain/mains/rainwater | sensor | Diagnostic, disabled by default; only ever seen once, at commissioning |
 | Bus connection | binary_sensor | Connectivity; the one entity that stays available even when the bus is down |
 | Drop / No rainwater / Tap / Holiday / Recycle / Engineering mode LED | binary_sensor | From the `1053` push frame |
+| Rain filling / Mains filling LED | binary_sensor | Low byte of the `1053` frame (`0x01` / `0x02`). Lit while the tank is being filled from rainwater / the mains (confirmed on the unit during real refills) |
+| Rainwater saved | sensor | Litres, net: rain filled minus rain drained. Can go down; see *Water counters* |
+| Rainwater filled / Mains water filled | sensor | Litres delivered into the tank by each source (always increasing) |
+| Rainwater drained | sensor | Diagnostic: litres drained back out in holiday/refresh cycles |
 | Drop / Tap / Holiday / Recycle button | binary_sensor | From the `4033` reply |
 
 ### Installation (HACS, custom repository)
@@ -61,12 +65,33 @@ If the connection drops (WiFi blip, EW11A reboot), it reconnects with exponentia
    category **Integration**.
 3. Install **Rainwater Harvesting**, restart Home Assistant.
 4. Settings -> Devices & Services -> **Add Integration** -> search "RainWater Harvesting".
-5. Enter the EW11A's IP address and port (default `8899`). Setup opens a connection and waits a few seconds for at least one line of traffic to confirm it's the right port before creating the entry.
+5. Enter the EW11A's IP address and port (default `8899`) and your loft tank's volume in litres (default `100`). Setup opens a connection and waits a few seconds for at least one line of traffic to confirm it's the right port before creating the entry.
+
+To change the IP address, port or tank volume later (e.g. after replacing the EW11A): Settings -> Devices & Services -> Rain Director -> three-dot menu -> **Reconfigure**. Entities, history and water totals are kept. The bridge is only test-connected if the host or port changed, so the tank volume can still be edited while the bridge is down. Entries created before the tank volume option existed use the default until you set it.
 
 ### Extending it
 
 - New frame type or JSON message: add a decode function in `protocol.py` and a case in `BusFrameDecoder`, following the existing ones -- it's plain, dependency-free Python with its own test file (`tests/test_protocol.py`), so new decoding logic can be validated against captured frames without touching Home Assistant at all.
 - New confirmed meaning for `r`/`m` or an unmapped `state` code: update the tables/docstrings at the top of `protocol.py`.
+
+## Water counters
+
+The integration turns changes in the tank level into litres (using the tank volume you configured: 1% = 1 L for 100 L) and attributes them with the unit's own filling lights. Four sensors, all kept across restarts and reloads in their own store (`.storage/rainwater_harvesting.<entry id>.water`):
+
+| Sensor | Meaning |
+|---|---|
+| **Rainwater filled** | Litres pushed into the tank while the *Rain filling* light is on. Only increases. |
+| **Mains water filled** | Litres pushed into the tank while the *Mains filling* light is on. Only increases. |
+| **Rainwater drained** | Litres the unit emptied back out in a holiday or refresh drain. Only increases. Diagnostic. |
+| **Rainwater saved** | *Rainwater filled* minus *Rainwater drained*. |
+
+*Rainwater saved* is the rainwater delivered into the tank, i.e. mains water that did not have to be used. A refresh or holiday cycle drains the tank and later pushes fresh rainwater back in, and that refill is not a saving, so the drain is subtracted and the refill adds it back: a full cycle nets to about zero. Because it can go down, it is a `total` sensor (not `total_increasing`, which Home Assistant would read as a meter reset). Use it with the Energy dashboard or `utility_meter` for daily/monthly figures.
+
+What is counted: only level changes in normal operation. Commissioning (states 9, 15) and engineering mode (13) are ignored entirely; falls in normal use are the house drawing water and are never counted; if both filling lights are on at once the source is ambiguous and the rise is skipped. After a bus reconnect the first reading only sets a new baseline, so a reconnect can never look like a fill.
+
+Limits, all small: the level moves in 1% steps; water drawn by the house *during* a fill hides part of that fill (only the net rise is visible); the unit reports its mode about every 7 s, so the first/last few percent of a drain can be missed; and a drain is assumed to be rainwater, so if mains backup water was in the tank at the time *Rainwater saved* dips slightly too low. Deliberately **not** done: attributing consumption to a source, which would need a model of what is mixed in the tank and would often be wrong.
+
+Changing the tank volume only affects water counted from then on; totals already recorded are not rewritten.
 
 ## Known unknowns
 
@@ -74,6 +99,8 @@ Carried over from the original sniffing notes:
 
 - `r` / `m` in the tank-levels JSON: possibly rainwater/mains fill timeout counters, unconfirmed.
 - The second byte of the `2053` tank-level payload (`tank_level_unknown_byte`): meaning unknown, exposed as a sensor attribute in case a pattern emerges.
+- LED bits `0x40` and `0x80` in the high byte of the `1053` frame: only seen during commissioning (`0xC000` while draining, `0x40` during the fills). Reported as unmapped bits.
+- Which operating states are *drains* (`DRAIN_MODES = {3, 5}` in `water.py`, from the original state naming): not independently confirmed. After a holiday or refresh drain, **Rainwater drained** should rise by about one tank; if it doesn't, the state codes need adjusting.
 - The `30xx` device: polled regularly, never replies on this installation. Not implemented as an entity since there's nothing to show.
 
 ## License

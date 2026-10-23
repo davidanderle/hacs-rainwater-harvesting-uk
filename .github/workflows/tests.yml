@@ -15,3 +15,5 @@ jobs:
         with:
           python-version: "3.13"
       - run: python tests/test_protocol.py
+      - run: python tests/test_water.py
+      - run: python tests/test_coordinator_water.py

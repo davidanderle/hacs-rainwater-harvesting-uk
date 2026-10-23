@@ -97,6 +97,13 @@ LED_FLAGS: dict[int, str] = {
     0b01000 << 16: "holiday",
     0b10000 << 16: "recycle",
     0b00000100: "engineering_mode",
+    # The "rain filling" / "mains filling" panel lights. First spotted in a
+    # full commissioning run (0x01 set for the whole rainwater phase while
+    # the level rose 49% -> 69%, 0x02 for the whole mains phase 69% -> 79%),
+    # then confirmed on the unit during real refills. 0x40/0x80 in the high
+    # byte are still unmapped (only seen during commissioning).
+    0b00000001: "rain_filling",
+    0b00000010: "mains_filling",
 }
 
 # Every bit LED_FLAGS names; commissioning frames carry others (0x4001, 0x4002, 0xC000).

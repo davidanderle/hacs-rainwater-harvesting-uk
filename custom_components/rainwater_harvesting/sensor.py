@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
-from homeassistant.components.sensor import SensorEntity, SensorStateClass
+from homeassistant.components.sensor import (
+    SensorDeviceClass,
+    SensorEntity,
+    SensorStateClass,
+)
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import PERCENTAGE
+from homeassistant.const import PERCENTAGE, UnitOfVolume
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
@@ -14,6 +18,17 @@ from .coordinator import RainDirectorCoordinator
 from .entity import RainDirectorEntity
 
 _COMMISSION_FIELDS = ("commission_drain", "commission_mains", "commission_rainwater")
+
+# (WaterTotals field, state class, icon, entity category). "Saved" is the
+# net figure and goes DOWN during a refresh/holiday drain, so it must be
+# `total`: with `total_increasing` HA would read every decrease as a meter
+# reset and corrupt the long-term statistics. The others only ever grow.
+_WATER_SENSORS = (
+    ("rain_saved", SensorStateClass.TOTAL, "mdi:water-check", None),
+    ("rain_filled", SensorStateClass.TOTAL_INCREASING, "mdi:weather-pouring", None),
+    ("mains_filled", SensorStateClass.TOTAL_INCREASING, "mdi:faucet", None),
+    ("rain_drained", SensorStateClass.TOTAL_INCREASING, "mdi:water-minus", EntityCategory.DIAGNOSTIC),
+)
 
 
 async def async_setup_entry(
@@ -35,7 +50,55 @@ async def async_setup_entry(
     entities += [
         CommissionSensor(coordinator, entry.entry_id, field) for field in _COMMISSION_FIELDS
     ]
+    entities += [
+        WaterTotalSensor(coordinator, entry.entry_id, key, state_class, icon, category)
+        for key, state_class, icon, category in _WATER_SENSORS
+    ]
     async_add_entities(entities)
+
+
+class WaterTotalSensor(RainDirectorEntity, SensorEntity):
+    """One of the litre totals kept by the water meter (see water.py).
+
+    These are persisted counters, so unlike the live bus sensors they stay
+    available (showing the last total) while the bus connection is down.
+    """
+
+    _attr_device_class = SensorDeviceClass.WATER
+    _attr_native_unit_of_measurement = UnitOfVolume.LITERS
+    _attr_suggested_display_precision = 1
+
+    def __init__(
+        self,
+        coordinator: RainDirectorCoordinator,
+        entry_id: str,
+        key: str,
+        state_class: SensorStateClass,
+        icon: str,
+        category: EntityCategory | None,
+    ) -> None:
+        """Initialize entity. `key` must be a WaterTotals field or property."""
+        super().__init__(coordinator, entry_id, f"water_{key}")
+        self._attr_translation_key = f"water_{key}"
+        self._key = key
+        self._attr_state_class = state_class
+        self._attr_icon = icon
+        self._attr_entity_category = category
+
+    @property
+    def available(self) -> bool:
+        """Always available: a stored total doesn't depend on the live bus."""
+        return True
+
+    @property
+    def native_value(self) -> float:
+        """Return the running total in litres."""
+        return round(getattr(self.coordinator.meter.totals, self._key), 2)
+
+    @property
+    def extra_state_attributes(self) -> dict[str, float]:
+        """Expose the tank volume the litres were calculated with."""
+        return {"tank_litres": self.coordinator.tank_litres}
 
 
 class TankLevelSensor(RainDirectorEntity, SensorEntity):

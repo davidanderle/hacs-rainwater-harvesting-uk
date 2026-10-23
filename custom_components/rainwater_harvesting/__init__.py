@@ -7,7 +7,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_HOST, CONF_PORT
 from homeassistant.core import HomeAssistant
 
-from .const import DOMAIN, PLATFORMS
+from .const import CONF_TANK_LITRES, DEFAULT_TANK_LITRES, DOMAIN, PLATFORMS
 from .coordinator import RainDirectorCoordinator
 
 # UI/config-entry only -- no YAML configuration is supported. This also
@@ -20,7 +20,15 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up Rain Director from a config entry."""
     hass.data.setdefault(DOMAIN, {})
 
-    coordinator = RainDirectorCoordinator(hass, entry.data[CONF_HOST], entry.data[CONF_PORT])
+    coordinator = RainDirectorCoordinator(
+        hass,
+        entry.data[CONF_HOST],
+        entry.data[CONF_PORT],
+        entry.entry_id,
+        # Entries created before this option existed have no value stored.
+        entry.data.get(CONF_TANK_LITRES, DEFAULT_TANK_LITRES),
+    )
+    await coordinator.async_load_totals()
     await coordinator.async_start()
 
     hass.data[DOMAIN][entry.entry_id] = coordinator

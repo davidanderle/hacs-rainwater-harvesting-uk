@@ -3,18 +3,26 @@
     "step": {
       "user": {
         "title": "Set up Rain Director",
-        "description": "Enter the IP address and port of the EW11A RS485-to-WiFi bridge wired to the Rain Director's bus. The integration connects to it over a persistent TCP connection, the same way `nc` would from a terminal, and stays connected.",
+        "description": "Enter the IP address and port of the EW11A RS485-to-WiFi bridge wired to the Rain Director's bus, and the volume of your loft tank. The integration connects to the bridge over a persistent TCP connection, the same way `nc` would from a terminal, and stays connected.",
         "data": {
           "host": "Host",
-          "port": "Port"
+          "port": "Port",
+          "tank_litres": "Loft tank volume"
+        },
+        "data_description": {
+          "tank_litres": "Usable volume in litres between 0% and 100% on the level sensor (100 for a standard Rain Director header tank). Used to turn level changes into litres for the water counters. You can change it later with Reconfigure; it only affects water counted from then on."
         }
       },
       "reconfigure": {
         "title": "Update Rain Director connection",
-        "description": "Enter the new IP address and port of the EW11A bridge (e.g. after replacing a failed one). Existing entities, history and dashboard references are kept.",
+        "description": "Change the EW11A bridge's IP address and port (e.g. after replacing a failed one) and/or the loft tank volume. Existing entities, history, water totals and dashboard references are kept.",
         "data": {
           "host": "Host",
-          "port": "Port"
+          "port": "Port",
+          "tank_litres": "Loft tank volume"
+        },
+        "data_description": {
+          "tank_litres": "Usable volume in litres between 0% and 100% on the level sensor. Changing it only affects water counted from now on; totals already recorded are not rewritten. The bridge is only test-connected if the host or port changed."
         }
       }
     },
@@ -24,7 +32,7 @@
     },
     "abort": {
       "already_configured": "This bridge is already configured.",
-      "reconfigure_successful": "Connection details updated."
+      "reconfigure_successful": "Settings updated."
     }
   },
   "entity": {
@@ -35,6 +43,10 @@
       "last_action": { "name": "Last action" },
       "r_value": { "name": "R value (unconfirmed)" },
       "unknown_messages": { "name": "Unknown messages" },
+      "water_rain_saved": { "name": "Rainwater saved" },
+      "water_rain_filled": { "name": "Rainwater filled" },
+      "water_mains_filled": { "name": "Mains water filled" },
+      "water_rain_drained": { "name": "Rainwater drained" },
       "m_value": { "name": "M value (unconfirmed)" },
       "commission_drain": { "name": "Commissioning drain" },
       "commission_mains": { "name": "Commissioning mains" },
@@ -48,6 +60,8 @@
       "led_holiday": { "name": "Holiday LED" },
       "led_recycle": { "name": "Recycle LED" },
       "led_engineering_mode": { "name": "Engineering mode LED" },
+      "led_rain_filling": { "name": "Rain filling LED" },
+      "led_mains_filling": { "name": "Mains filling LED" },
       "button_drop": { "name": "Drop button" },
       "button_tap": { "name": "Tap button" },
       "button_holiday": { "name": "Holiday button" },

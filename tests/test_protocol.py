@@ -335,17 +335,38 @@ def test_state_15_is_commissioning_drain():
     assert data.mode_name == STATE_NAMES[15] == "commissioning_drain"
 
 
-def test_unmapped_led_bits_are_reported_not_read_as_off():
-    """Real frames from a commissioning run: bits the decoder has no name for."""
-    for raw in ("1053c00068", "105340013e", "105340023d"):
+def test_commissioning_led_frames_decode_filling_bits_and_flag_the_rest():
+    """Real frames from a commissioning run.
+
+    The low byte's 0x01 / 0x02 are the inferred rain/mains "filling"
+    lights; the high byte's 0x40 / 0x80 are still unmapped and must
+    keep being reported rather than silently read as "off".
+    """
+    expected = {
+        "1053c00068": (frozenset(), 0xC00000),  # drain phase: only unmapped bits
+        "105340013e": (frozenset({"rain_filling"}), 0x400000),
+        "105340023d": (frozenset({"mains_filling"}), 0x400000),
+    }
+    for raw, (flags, unmapped) in expected.items():
         decoder = BusFrameDecoder()
         data = RainDirectorData()
         assert checksum_ok(raw), raw
         data, notices = _feed(decoder, data, "<" + raw)
-        assert data.led_flags == frozenset(), raw
+        assert data.led_flags == flags, raw
         assert data.unknown_message_count == 1, raw
         assert data.last_unknown_message == "<" + raw
-        assert len(notices) == 1 and "unmapped bits" in notices[0], raw
+        assert len(notices) == 1 and f"0x{unmapped:06X}" in notices[0], raw
+
+
+def test_filling_lights_alone_do_not_trigger_unmapped_warning():
+    """A normal top-up lights only the mapped filling bit -- no warning spam."""
+    for payload, flag in (("0101", "rain_filling"), ("0102", "mains_filling")):
+        decoder = BusFrameDecoder()
+        data = RainDirectorData()
+        data, notices = _feed(decoder, data, "<" + _frame("1053" + payload))
+        assert flag in data.led_flags and "drop" in data.led_flags
+        assert notices == []
+        assert data.unknown_message_count == 0
 
 
 def test_mapped_led_frames_do_not_trigger_unmapped_warning():
@@ -360,10 +381,11 @@ def test_mapped_led_frames_do_not_trigger_unmapped_warning():
 
 
 def test_unmapped_led_bits_value_is_exact():
-    assert unmapped_led_bits("4001") == 0x400001
-    assert unmapped_led_bits("4002") == 0x400002
+    assert unmapped_led_bits("4001") == 0x400000  # 0x01 is now mapped
+    assert unmapped_led_bits("4002") == 0x400000  # 0x02 is now mapped
     assert unmapped_led_bits("c000") == 0xC00000
     assert unmapped_led_bits("0104") == 0  # drop + engineering: fully mapped
+    assert unmapped_led_bits("0101") == 0  # drop + rain filling: fully mapped
     assert unmapped_led_bits("01") == 0  # too short to decode
 
 

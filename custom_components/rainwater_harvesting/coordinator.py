@@ -23,16 +23,23 @@ import re
 from dataclasses import replace
 
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers.storage import Store
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 
 from .const import DOMAIN
 from .protocol import BusFrameDecoder, RainDirectorData
+from .water import WaterMeter, WaterTotals
 
 _LOGGER = logging.getLogger(__name__)
 
 _RECONNECT_DELAY_INITIAL = 5
 _RECONNECT_DELAY_MAX = 60
 _READ_CHUNK = 4096
+
+# Water totals are written to .storage a little after they change rather
+# than on every 1% step; HA also flushes pending writes on shutdown.
+_STORAGE_VERSION = 1
+_SAVE_DELAY = 30
 
 # The bridge has been observed to terminate frames with a bare '\r',
 # which plain line iteration does not split on (only '\n' does) -- so
@@ -43,7 +50,14 @@ _LINE_SPLIT_RE = re.compile(r"[\r\n]")
 class RainDirectorCoordinator(DataUpdateCoordinator[RainDirectorData]):
     """Owns the TCP connection to the EW11A and the decoded bus state."""
 
-    def __init__(self, hass: HomeAssistant, host: str, port: int) -> None:
+    def __init__(
+        self,
+        hass: HomeAssistant,
+        host: str,
+        port: int,
+        entry_id: str,
+        tank_litres: float,
+    ) -> None:
         """Initialize coordinator."""
         super().__init__(hass, _LOGGER, name=f"{DOMAIN}_{host}", update_interval=None)
         self.host = host
@@ -52,6 +66,24 @@ class RainDirectorCoordinator(DataUpdateCoordinator[RainDirectorData]):
         self._decoder = BusFrameDecoder()
         self._task: asyncio.Task | None = None
         self._stopping = False
+
+        # Running litre totals, kept in their own store (not entity state)
+        # so they survive restarts AND integration reloads -- Reconfigure
+        # reloads the entry, and the totals must carry straight through.
+        self.meter = WaterMeter(tank_litres)
+        self._store: Store[dict] = Store(hass, _STORAGE_VERSION, f"{DOMAIN}.{entry_id}.water")
+
+    @property
+    def tank_litres(self) -> float:
+        """Configured usable tank volume in litres."""
+        return self.meter.tank_litres
+
+    async def async_load_totals(self) -> None:
+        """Restore the saved water totals. Call before async_start()."""
+        self.meter.totals = WaterTotals.from_dict(await self._store.async_load())
+
+    def _water_data(self) -> dict[str, float]:
+        return self.meter.totals.to_dict()
 
     async def async_start(self) -> None:
         """Start the background connection task."""
@@ -68,6 +100,8 @@ class RainDirectorCoordinator(DataUpdateCoordinator[RainDirectorData]):
             except asyncio.CancelledError:
                 pass
             self._task = None
+        # Flush any pending delayed write so nothing is lost on unload/reload.
+        await self._store.async_save(self._water_data())
 
     async def _async_update_data(self) -> RainDirectorData:
         # update_interval=None means this is never called on a timer --
@@ -131,9 +165,15 @@ class RainDirectorCoordinator(DataUpdateCoordinator[RainDirectorData]):
         for notice in notices:
             _LOGGER.warning("%s", notice)
         if new_data is not None:
+            if self.meter.update(new_data.tank_level, new_data.led_flags, new_data.mode_code):
+                self._store.async_delay_save(self._water_data, _SAVE_DELAY)
             self.async_set_updated_data(new_data)
 
     def _set_connected(self, connected: bool) -> None:
+        if not connected:
+            # Whatever the level did while we weren't listening is unknown,
+            # so the first reading after reconnecting is only a new baseline.
+            self.meter.reset_baseline()
         if self.data.connected == connected:
             return
         self.async_set_updated_data(replace(self.data, connected=connected))
