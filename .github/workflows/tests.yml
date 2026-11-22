@@ -17,3 +17,5 @@ jobs:
       - run: python tests/test_protocol.py
       - run: python tests/test_water.py
       - run: python tests/test_coordinator_water.py
+      - run: python tests/test_latched_values.py
+      - run: python tests/test_refill_counters.py

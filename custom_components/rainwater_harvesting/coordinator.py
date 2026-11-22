@@ -27,7 +27,7 @@ from homeassistant.helpers.storage import Store
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 
 from .const import DOMAIN
-from .protocol import BusFrameDecoder, RainDirectorData
+from .protocol import BusFrameDecoder, RainDirectorData, latched_values, restore_latched
 from .water import WaterMeter, WaterTotals
 
 _LOGGER = logging.getLogger(__name__)
@@ -40,6 +40,12 @@ _READ_CHUNK = 4096
 # than on every 1% step; HA also flushes pending writes on shutdown.
 _STORAGE_VERSION = 1
 _SAVE_DELAY = 30
+
+# Latched values (commissioning data, last display/action) change rarely and
+# are worth far more than a few seconds of write-avoidance: a hard power cut
+# loses anything still pending, and those messages are never re-sent. So
+# they are written almost immediately; the short delay just merges a burst.
+_LATCH_SAVE_DELAY = 2
 
 # The bridge has been observed to terminate frames with a bare '\r',
 # which plain line iteration does not split on (only '\n' does) -- so
@@ -73,6 +79,13 @@ class RainDirectorCoordinator(DataUpdateCoordinator[RainDirectorData]):
         self.meter = WaterMeter(tank_litres)
         self._store: Store[dict] = Store(hass, _STORAGE_VERSION, f"{DOMAIN}.{entry_id}.water")
 
+        # Last known value of the rarely-sent messages (see LATCHED_FIELDS),
+        # in a separate store from the water totals so neither format has to
+        # change when the other does.
+        self._latched_store: Store[dict] = Store(
+            hass, _STORAGE_VERSION, f"{DOMAIN}.{entry_id}.latched"
+        )
+
     @property
     def tank_litres(self) -> float:
         """Configured usable tank volume in litres."""
@@ -84,6 +97,17 @@ class RainDirectorCoordinator(DataUpdateCoordinator[RainDirectorData]):
 
     def _water_data(self) -> dict[str, float]:
         return self.meter.totals.to_dict()
+
+    async def async_load_latched(self) -> None:
+        """Put back the last known value of the rarely-sent messages.
+
+        Call before async_start() and before the entities are created, so
+        they have something to show from the very first moment.
+        """
+        self.data = restore_latched(self.data, await self._latched_store.async_load())
+
+    def _latched_data(self) -> dict[str, str | None]:
+        return latched_values(self.data)
 
     async def async_start(self) -> None:
         """Start the background connection task."""
@@ -102,6 +126,7 @@ class RainDirectorCoordinator(DataUpdateCoordinator[RainDirectorData]):
             self._task = None
         # Flush any pending delayed write so nothing is lost on unload/reload.
         await self._store.async_save(self._water_data())
+        await self._latched_store.async_save(self._latched_data())
 
     async def _async_update_data(self) -> RainDirectorData:
         # update_interval=None means this is never called on a timer --
@@ -167,6 +192,8 @@ class RainDirectorCoordinator(DataUpdateCoordinator[RainDirectorData]):
         if new_data is not None:
             if self.meter.update(new_data.tank_level, new_data.led_flags, new_data.mode_code):
                 self._store.async_delay_save(self._water_data, _SAVE_DELAY)
+            if latched_values(new_data) != latched_values(self.data):
+                self._latched_store.async_delay_save(self._latched_data, _LATCH_SAVE_DELAY)
             self.async_set_updated_data(new_data)
 
     def _set_connected(self, connected: bool) -> None:

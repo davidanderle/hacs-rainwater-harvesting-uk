@@ -57,6 +57,24 @@ async def async_setup_entry(
     async_add_entities(entities)
 
 
+class _LatchedSensorMixin:
+    """For sensors whose value the unit sends only rarely.
+
+    The coordinator saves the last known value (see LATCHED_FIELDS in
+    protocol.py) and restores it at startup, so these keep showing it --
+    instead of flipping to unavailable whenever the bus connection is down,
+    including the first moments after a Home Assistant restart. They read
+    as unknown only if the unit has genuinely never sent the value.
+
+    Must come before RainDirectorEntity in the bases so it wins the lookup.
+    """
+
+    @property
+    def available(self) -> bool:
+        """Always available: the value is a stored last-known one, not live."""
+        return True
+
+
 class WaterTotalSensor(RainDirectorEntity, SensorEntity):
     """One of the litre totals kept by the water meter (see water.py).
 
@@ -148,8 +166,12 @@ class ModeSensor(RainDirectorEntity, SensorEntity):
         return {"mode_code": self.coordinator.data.mode_code}
 
 
-class DisplayModeSensor(RainDirectorEntity, SensorEntity):
-    """Screen currently shown on the control unit, from its '(display)' log lines."""
+class DisplayModeSensor(_LatchedSensorMixin, RainDirectorEntity, SensorEntity):
+    """Screen currently shown on the control unit, from its '(display)' log lines.
+
+    The unit only prints one when the screen changes, so the last known
+    value is latched across restarts and bus outages.
+    """
 
     _attr_translation_key = "display_mode"
     _attr_icon = "mdi:monitor"
@@ -164,8 +186,12 @@ class DisplayModeSensor(RainDirectorEntity, SensorEntity):
         return self.coordinator.data.display_mode
 
 
-class LastActionSensor(RainDirectorEntity, SensorEntity):
-    """Last action the controller announced (fill, drain, refresh)."""
+class LastActionSensor(_LatchedSensorMixin, RainDirectorEntity, SensorEntity):
+    """Last action the controller announced (fill, drain, refresh).
+
+    Events are only announced when they happen, so the last known value is
+    latched across restarts and bus outages.
+    """
 
     _attr_translation_key = "last_action"
     _attr_icon = "mdi:gesture-tap-button"
@@ -180,38 +206,65 @@ class LastActionSensor(RainDirectorEntity, SensorEntity):
         return self.coordinator.data.last_action
 
 
-class RValueSensor(RainDirectorEntity, SensorEntity):
-    """'r' field from the tanklevels JSON -- meaning unconfirmed."""
+def _as_count(value: str | None) -> int | None:
+    """A counter from the unit's text field, or None if absent / not a whole number."""
+    try:
+        return int(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return None
 
-    _attr_translation_key = "r_value"
+
+class _RefillCountSensor(RainDirectorEntity, SensorEntity):
+    """Base for the `r` / `m` counters of the tanklevels JSON.
+
+    Found by running the system for a couple of weeks: they count how many
+    times a rainwater (`r`) / mains (`m`) refill was triggered. The unit's
+    own commissioning steps count too (a finished commissioning run ends at
+    r=1, m=2), and both restart from 0 when it is commissioned again.
+
+    Exposed as numeric `total_increasing` counters so Home Assistant can
+    graph them and keep long-term statistics; a reset to 0 at
+    re-commissioning is treated as a new counting cycle, which is correct.
+    The exact rule for what the unit counts is not fully confirmed ("maybe
+    more"), so the names say "refill count", not what triggers one.
+    """
+
     _attr_entity_category = EntityCategory.DIAGNOSTIC
-    _attr_icon = "mdi:help-circle-outline"
+    _attr_state_class = SensorStateClass.TOTAL_INCREASING
+    _attr_icon = "mdi:counter"
+    _field = ""
+
+    def __init__(
+        self, coordinator: RainDirectorCoordinator, entry_id: str, key: str
+    ) -> None:
+        """Initialize entity. `key` is kept as before so entity IDs and history survive."""
+        super().__init__(coordinator, entry_id, key)
+        self._attr_translation_key = key
+
+    @property
+    def native_value(self) -> int | None:
+        """Return the counter, or None until the unit has reported it."""
+        return _as_count(getattr(self.coordinator.data, self._field))
+
+
+class RValueSensor(_RefillCountSensor):
+    """'r': rainwater refill count."""
+
+    _field = "r_value"
 
     def __init__(self, coordinator: RainDirectorCoordinator, entry_id: str) -> None:
         """Initialize entity."""
         super().__init__(coordinator, entry_id, "r_value")
 
-    @property
-    def native_value(self) -> str | None:
-        """Return the raw 'r' value."""
-        return self.coordinator.data.r_value
 
+class MValueSensor(_RefillCountSensor):
+    """'m': mains refill count."""
 
-class MValueSensor(RainDirectorEntity, SensorEntity):
-    """'m' field from the tanklevels JSON -- meaning unconfirmed."""
-
-    _attr_translation_key = "m_value"
-    _attr_entity_category = EntityCategory.DIAGNOSTIC
-    _attr_icon = "mdi:help-circle-outline"
+    _field = "m_value"
 
     def __init__(self, coordinator: RainDirectorCoordinator, entry_id: str) -> None:
         """Initialize entity."""
         super().__init__(coordinator, entry_id, "m_value")
-
-    @property
-    def native_value(self) -> str | None:
-        """Return the raw 'm' value."""
-        return self.coordinator.data.m_value
 
 
 class UnknownMessageSensor(RainDirectorEntity, SensorEntity):
@@ -246,14 +299,15 @@ class UnknownMessageSensor(RainDirectorEntity, SensorEntity):
         return {"last_message": self.coordinator.data.last_unknown_message}
 
 
-class CommissionSensor(RainDirectorEntity, SensorEntity):
-    """One field of the one-time commissioning JSON blob.
+class CommissionSensor(_LatchedSensorMixin, RainDirectorEntity, SensorEntity):
+    """One field of the commissioning data the unit sends once, at power-up.
 
-    That message has only ever been observed once, at the end of
-    commissioning, so on most installs this will just stay blank --
-    that's expected, not a bug. Disabled by default so it doesn't
-    clutter the entity list with permanently-empty sensors; enable it
-    manually if you can trigger a re-commission and want to capture it.
+    It is never repeated, so the last value received is latched: it is saved
+    and restored after a Home Assistant restart and the sensor stays
+    available while the bus is down. It shows unknown only until the unit
+    next powers up (or is re-commissioned) while the integration is
+    connected. Disabled by default so it doesn't clutter the entity list;
+    enable it to compare against the r/m values while debugging.
     """
 
     _attr_entity_category = EntityCategory.DIAGNOSTIC

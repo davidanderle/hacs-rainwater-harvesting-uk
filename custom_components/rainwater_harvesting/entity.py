@@ -23,9 +23,12 @@ def make_device_info(entry_id: str, host: str) -> DeviceInfo:
 class RainDirectorEntity(CoordinatorEntity[RainDirectorCoordinator]):
     """Base class for Rain Director entities.
 
-    Every entity except the connectivity sensor itself goes unavailable
-    the moment the bus connection drops, rather than showing a stale
-    last-known value with no indication anything's wrong.
+    Live entities go unavailable the moment the bus connection drops,
+    rather than showing a stale last-known value with no indication
+    anything's wrong. The exceptions are the connectivity sensor itself
+    and the stored ones: the water totals and the latched rarely-sent
+    values, which override `available` because their value doesn't depend
+    on the live bus.
     """
 
     _attr_has_entity_name = True

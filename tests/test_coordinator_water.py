@@ -1,88 +1,21 @@
 #!/usr/bin/env python3
 """Wiring tests for the coordinator's water accounting.
 
-Home Assistant isn't installed in CI, so this loads the REAL coordinator.py
-(plus const/protocol/water) inside a synthetic package and substitutes
-minimal stand-ins for the few HA classes it touches (DataUpdateCoordinator,
-Store, HomeAssistant, Platform). Everything else -- the bus decoding, the
-water meter, the load/save/baseline wiring -- is the shipped code, driven
-with real bus lines. It checks the glue, not Home Assistant itself.
+Loads the REAL coordinator.py (plus const/protocol/water) against the
+minimal Home Assistant stand-ins in ha_stubs.py, and drives it with real bus
+lines. It checks the integration's glue (load/save/baseline wiring), not
+Home Assistant itself.
 """
 
 import asyncio
-import enum
-import importlib
 import os
 import sys
-import types
 
-PKG_DIR = os.path.join(
-    os.path.dirname(__file__), "..", "custom_components", "rainwater_harvesting"
-)
+sys.path.insert(0, os.path.dirname(__file__))
 
+from ha_stubs import load  # noqa: E402
 
-# -- minimal Home Assistant stand-ins -----------------------------------------
-
-class _FakeCoordinatorBase:
-    def __class_getitem__(cls, item):
-        return cls
-
-    def __init__(self, hass, logger, name=None, update_interval=None):
-        self.hass = hass
-        self.updates = []
-
-    def async_set_updated_data(self, data):
-        self.data = data
-        self.updates.append(data)
-
-
-class _FakeStore:
-    def __class_getitem__(cls, item):
-        return cls
-
-    def __init__(self, hass, version, key):
-        self.version, self.key = version, key
-        self.loaded = None  # what async_load() will return
-        self.saved = None  # last async_save() payload
-        self.delayed = []  # (data, delay) for each async_delay_save()
-
-    async def async_load(self):
-        return self.loaded
-
-    async def async_save(self, data):
-        self.saved = dict(data)
-
-    def async_delay_save(self, data_func, delay=0):
-        self.delayed.append((dict(data_func()), delay))
-
-
-def _stub(name, **attrs):
-    module = types.ModuleType(name)
-    module.__dict__.update(attrs)
-    sys.modules[name] = module
-    return module
-
-
-class _Platform(enum.Enum):
-    SENSOR = "sensor"
-    BINARY_SENSOR = "binary_sensor"
-
-
-_stub("homeassistant")
-_stub("homeassistant.core", HomeAssistant=object)
-_stub("homeassistant.const", Platform=_Platform)
-_stub("homeassistant.helpers")
-_stub("homeassistant.helpers.storage", Store=_FakeStore)
-_stub("homeassistant.helpers.update_coordinator", DataUpdateCoordinator=_FakeCoordinatorBase)
-
-# Load the shipped modules under a synthetic package so the relative
-# imports resolve WITHOUT running the package's __init__.py (which needs
-# far more of Home Assistant than this test provides).
-_pkg = types.ModuleType("rwh_pkg")
-_pkg.__path__ = [os.path.abspath(PKG_DIR)]
-sys.modules["rwh_pkg"] = _pkg
-coordinator_module = importlib.import_module("rwh_pkg.coordinator")
-Coordinator = coordinator_module.RainDirectorCoordinator
+Coordinator = load("coordinator").RainDirectorCoordinator
 
 
 # -- helpers --------------------------------------------------------------------

@@ -29,6 +29,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         entry.data.get(CONF_TANK_LITRES, DEFAULT_TANK_LITRES),
     )
     await coordinator.async_load_totals()
+    await coordinator.async_load_latched()
     await coordinator.async_start()
 
     hass.data[DOMAIN][entry.entry_id] = coordinator

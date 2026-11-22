@@ -101,7 +101,12 @@ LED_FLAGS: dict[int, str] = {
     # full commissioning run (0x01 set for the whole rainwater phase while
     # the level rose 49% -> 69%, 0x02 for the whole mains phase 69% -> 79%),
     # then confirmed on the unit during real refills. 0x40/0x80 in the high
-    # byte are still unmapped (only seen during commissioning).
+    # byte are still unmapped ON PURPOSE: seen only during commissioning
+    # (0xC0 from the start of the drain, 0x40 alone through the fills), in
+    # every run so far. Leaving them unmapped keeps the unmapped-bits
+    # warning armed, which is how the open question gets settled: a normal
+    # top-up or a holiday/refresh drain outside commissioning that shows
+    # either bit will be flagged with its exact value. See the README.
     0b00000001: "rain_filling",
     0b00000010: "mains_filling",
 }
@@ -224,6 +229,45 @@ class RainDirectorData:
     # the bus worth looking into (see BusFrameDecoder below).
     unknown_message_count: int = 0
     last_unknown_message: Optional[str] = None
+
+
+# Fields the unit sends only rarely: commissioning data once, at power-up;
+# display / action lines only when something happens. It never repeats
+# them, so after a Home Assistant restart they would sit at "unknown" for
+# good. The coordinator saves these and puts them back at startup, so each
+# one keeps showing its last known value ("latched") until the unit sends a
+# new one. A value of None therefore really does mean "never seen yet".
+#
+# Deliberately NOT included: anything the unit re-sends every few seconds
+# (level, mode, r, m) -- those refresh themselves within moments of
+# connecting, and a stale value there would be misleading rather than useful.
+LATCHED_FIELDS: tuple[str, ...] = (
+    "commission_drain",
+    "commission_mains",
+    "commission_rainwater",
+    "display_mode",
+    "last_action",
+)
+
+
+def latched_values(data: RainDirectorData) -> dict[str, Optional[str]]:
+    """The latched fields of `data`, ready to be stored."""
+    return {name: getattr(data, name) for name in LATCHED_FIELDS}
+
+
+def restore_latched(data: RainDirectorData, stored: object) -> RainDirectorData:
+    """Return `data` with any valid stored latched values put back.
+
+    Anything that isn't a dict, isn't one of LATCHED_FIELDS, or isn't a
+    string is ignored, so a corrupt or foreign store can never inject
+    live fields or crash startup.
+    """
+    if not isinstance(stored, dict):
+        return data
+    restored = {
+        name: stored[name] for name in LATCHED_FIELDS if isinstance(stored.get(name), str)
+    }
+    return replace(data, **restored) if restored else data
 
 
 # ==========================================================================
