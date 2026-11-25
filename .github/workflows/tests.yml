@@ -19,3 +19,4 @@ jobs:
       - run: python tests/test_coordinator_water.py
       - run: python tests/test_latched_values.py
       - run: python tests/test_refill_counters.py
+      - run: python tests/test_unknown_context.py

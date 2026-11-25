@@ -43,6 +43,7 @@ message shows up once, at the end of commissioning:
 from __future__ import annotations
 
 import json
+from collections import deque
 from dataclasses import dataclass, replace
 from datetime import datetime
 from typing import Optional
@@ -163,7 +164,22 @@ ACTION_MESSAGES: dict[str, str] = {
     "Auto commission - rainwater fill": "commission_rainwater_fill",
     "Auto commission - mains fill": "commission_mains_fill",
     "Auto commission complete": "commission_complete",
+    # Seen once, unprompted, while the house was empty -- about 32 h after the
+    # last refill, so not the documented 72 h auto-refresh, and the Recycle
+    # ("Flush through") light stayed off. The rain-filling light came on. What
+    # it physically does is still unknown; only the unit's own wording is
+    # recorded here. A frame <30153b appeared with it (see README).
+    "Flush inlet": "flush_inlet",
 }
+
+# How many raw bus lines to remember so that an unknown message can be
+# reported together with what came just before it. One line on its own
+# (e.g. a frame to the never-installed type-30 device) can't show whether it
+# is a command or a reply; its neighbours can. The bus is busy (~100
+# lines/s), so this covers a fraction of a second -- enough to see the
+# surrounding poll/reply cycle.
+CONTEXT_LINES = 12
+CONTEXT_LINE_MAX = 100  # characters kept per line, to bound the log/attribute size
 
 # Known plain-text lines with no state in them; ignored.
 TEXT_CHATTER: frozenset[str] = frozenset(
@@ -229,6 +245,8 @@ class RainDirectorData:
     # the bus worth looking into (see BusFrameDecoder below).
     unknown_message_count: int = 0
     last_unknown_message: Optional[str] = None
+    # The raw lines (oldest first) that came just before that message.
+    last_unknown_context: tuple[str, ...] = ()
 
 
 # Fields the unit sends only rarely: commissioning data once, at power-up;
@@ -288,19 +306,28 @@ class BusFrameDecoder:
     def __init__(self) -> None:
         self._last_seen: dict[str, str] = {}
         self._pending_poll: Optional[str] = None
+        # Every raw line, including the ones filtered out as unchanged.
+        self._recent: deque[str] = deque(maxlen=CONTEXT_LINES)
 
     def reset_connection(self) -> None:
         """Forget per-connection state; change-filtering history is kept."""
         self._pending_poll = None
+        # Lines from before a reconnect say nothing about what follows it.
+        self._recent.clear()
 
     def process_line(
         self, line: str, data: RainDirectorData
     ) -> tuple[Optional[RainDirectorData], list[str]]:
-        if line.startswith("<"):
-            return self._process_frame(line[1:], data)
-        if line.startswith("{"):
-            return self._process_json(line, data)
-        return self._process_text(line, data)
+        try:
+            if line.startswith("<"):
+                return self._process_frame(line[1:], data)
+            if line.startswith("{"):
+                return self._process_json(line, data)
+            return self._process_text(line, data)
+        finally:
+            # Appended AFTER handling, so while a line is being decoded
+            # `_recent` holds only the lines that preceded it.
+            self._recent.append(line[:CONTEXT_LINE_MAX])
 
     # -- plain-text debug lines ---------------------------------------------
 
@@ -348,8 +375,10 @@ class BusFrameDecoder:
             expected_type = POLL_FRAMES[poll]
             if frame_type != expected_type:
                 return None, [
-                    f"Unexpected response to poll <{poll}: got type "
-                    f"{frame_type} (<{packet})"
+                    self._with_context(
+                        f"Unexpected response to poll <{poll}: got type "
+                        f"{frame_type} (<{packet})"
+                    )
                 ]
 
         if self._last_seen.get(prefix) == packet:
@@ -377,22 +406,32 @@ class BusFrameDecoder:
 
         return new_data, []
 
-    @staticmethod
+    def _with_context(self, notice: str) -> str:
+        """`notice` followed by the raw lines that preceded the current one."""
+        if not self._recent:
+            return notice
+        return f"{notice} (preceded by: {' | '.join(self._recent)})"
+
     def _mark_unknown(
-        data: RainDirectorData, notice: str, raw_text: str
+        self, data: RainDirectorData, notice: str, raw_text: str
     ) -> tuple[RainDirectorData, list[str]]:
-        """Record an unrecognized-but-well-formed frame or JSON line.
+        """Record an unrecognized-but-well-formed frame, JSON or text line.
 
         Still returns a real snapshot update (not just a log notice) so
         it shows up as an entity too -- a log line is easy to miss, a
-        sensor that increments is not.
+        sensor that increments is not. The raw lines that came just before
+        it are attached to both, because what surrounds an unknown message
+        is usually what explains it.
         """
+        context = tuple(self._recent)
+        notice = self._with_context(notice)
         return (
             replace(
                 data,
                 last_update=datetime.now(),
                 unknown_message_count=data.unknown_message_count + 1,
                 last_unknown_message=raw_text,
+                last_unknown_context=context,
             ),
             [notice],
         )

@@ -285,6 +285,8 @@ ACTION_MESSAGES: dict[str, str] = {
     "Auto commission - rainwater fill": "commission_rainwater_fill",
     "Auto commission - mains fill": "commission_mains_fill",
     "Auto commission complete": "commission_complete",
+    # Seen once while the house was empty (see README); meaning unknown.
+    "Flush inlet": "flush_inlet",
 }
 
 TEXT_CHATTER = frozenset(
@@ -309,7 +311,10 @@ class BusFilter:
     def _describe(self, packet: str) -> Optional[str]:
         decoder = PREFIX_DECODERS.get(packet[:4])
         if decoder is None:
-            return None
+            # Same idea as "UNKNOWN TEXT": a frame nobody has decoded yet
+            # must not scroll past looking like ordinary traffic.
+            payload = packet[4:-2] or "none"
+            return f"UNKNOWN FRAME (type {packet[:2]}, code {packet[2:4]}, payload {payload})"
         _, decode_fn = decoder
         return decode_fn(packet[4:-2])
 

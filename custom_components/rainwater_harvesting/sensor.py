@@ -294,9 +294,13 @@ class UnknownMessageSensor(RainDirectorEntity, SensorEntity):
         return self.coordinator.data.unknown_message_count
 
     @property
-    def extra_state_attributes(self) -> dict[str, str | None]:
-        """Expose the most recent unrecognized frame/line verbatim."""
-        return {"last_message": self.coordinator.data.last_unknown_message}
+    def extra_state_attributes(self) -> dict[str, object]:
+        """Expose the most recent unrecognized frame/line, and what preceded it."""
+        data = self.coordinator.data
+        return {
+            "last_message": data.last_unknown_message,
+            "context": list(data.last_unknown_context),
+        }
 
 
 class CommissionSensor(_LatchedSensorMixin, RainDirectorEntity, SensorEntity):
